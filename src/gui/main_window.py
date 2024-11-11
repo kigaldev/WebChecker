@@ -56,13 +56,24 @@ class MainWindow(ttk.Frame):
         
         # Variable para el job de auto-refresh
         self._refresh_job = None
-        
+    
     def _setup_styles(self):
         """Configura los estilos de la aplicación."""
         self.style.configure('Header.TLabel', font=('Helvetica', 12, 'bold'))
         self.style.configure('Status.TLabel', font=('Helvetica', 10))
         self.style.configure('URL.TCombobox', font=('Helvetica', 10))
-        
+    
+    def _setup_bindings(self):
+        """Configura los bindings de eventos."""
+        self.master.bind('<Return>', lambda e: self._check_website())
+        self.master.protocol("WM_DELETE_WINDOW", self._on_closing)
+    
+    def _on_closing(self):
+        """Maneja el evento de cierre de la ventana."""
+        if self._refresh_job:
+            self.master.after_cancel(self._refresh_job)
+        self.master.destroy()
+    
     def _init_ui(self):
         """Inicializa todos los elementos de la interfaz."""
         # Configurar el grid principal
@@ -372,4 +383,351 @@ class MainWindow(ttk.Frame):
             self._add_to_history(url, status, result)
             
             # Actualizar URL history
-            self
+            self.url_history.add(url)
+            self._update_url_combo()
+            self._save_url_history()
+            
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Error al verificar el sitio: {str(e)}"
+            )
+            self.status_var.set("Estado: Error al verificar el sitio")
+    
+    def _clear_url(self):
+        """Limpia el campo de URL."""
+        self.url_var.set("")
+        
+    def _add_to_history(self, url: str, status: str, result):
+        """Agrega una entrada al historial."""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        response_time = f"{result.response_time:.2f}ms" if result.response_time > 0 else "N/A"
+        
+        self.history_tree.insert(
+            "",
+            0,
+            values=(url, status, response_time, timestamp)
+        )
+    
+    def _update_details(self, result):
+        """Actualiza el panel de detalles con los resultados."""
+        self.details_vars['response_time'].set(f"{result.response_time:.2f}ms")
+        self.details_vars['content_type'].set(result.content_type or "N/A")
+        self.details_vars['server'].set(result.server or "N/A")
+        
+        ssl_status = "Seguro (HTTPS)" if result.ssl_info else "No seguro (HTTP)"
+        self.details_vars['ssl_status'].set(ssl_status)
+    
+    def _toggle_auto_refresh(self):
+        """Activa/desactiva el auto-refresh."""
+        if self.auto_refresh_var.get():
+            try:
+                interval = int(self.refresh_interval_var.get())
+                if interval < 1:
+                    raise ValueError("El intervalo debe ser mayor a 0")
+                self._schedule_refresh()
+            except ValueError as e:
+                messagebox.showerror(
+                    "Error",
+                    f"Intervalo inválido: {str(e)}"
+                )
+                self.auto_refresh_var.set(False)
+        else:
+            if hasattr(self, '_refresh_job'):
+                self.master.after_cancel(self._refresh_job)
+    
+    def _schedule_refresh(self):
+        """Programa la próxima actualización."""
+        if self.auto_refresh_var.get():
+            interval = int(self.refresh_interval_var.get()) * 60 * 1000  # convertir a ms
+            self._check_website()
+            self._refresh_job = self.master.after(interval, self._schedule_refresh)
+    
+    def _toggle_theme(self):
+        """Cambia entre tema claro y oscuro."""
+        if self.dark_mode_var.get():
+            self._apply_dark_theme()
+        else:
+            self._apply_light_theme()
+    
+    def _apply_dark_theme(self):
+        """Aplica el tema oscuro."""
+        self.style.configure('.', background='#2b2b2b', foreground='white')
+        self.style.configure('TLabel', background='#2b2b2b', foreground='white')
+        self.style.configure('TFrame', background='#2b2b2b')
+        self.style.configure('TLabelframe', background='#2b2b2b')
+        self.style.configure('TLabelframe.Label', background='#2b2b2b', foreground='white')
+        self.style.configure('Treeview', background='#3b3b3b', foreground='white', fieldbackground='#3b3b3b')
+        self.master.configure(bg='#2b2b2b')
+    
+    def _apply_light_theme(self):
+        """Aplica el tema claro."""
+        self.style.configure('.', background='system', foreground='system')
+        self.style.configure('TLabel', background='system', foreground='system')
+        self.style.configure('TFrame', background='system')
+        self.style.configure('TLabelframe', background='system')
+        self.style.configure('TLabelframe.Label', background='system', foreground='system')
+        self.style.configure('Treeview', background='system', foreground='system', fieldbackground='system')
+        self.master.configure(bg='system')
+    
+    def _toggle_details(self):
+        """Muestra/oculta el panel de detalles."""
+        if self.show_details_var.get():
+            self.details_frame.grid()
+        else:
+            self.details_frame.grid_remove()
+    
+    def _show_context_menu(self, event):
+        """Muestra el menú contextual."""
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
+    
+    def _copy_selected_url(self):
+        """Copia la URL seleccionada al portapapeles."""
+        selected = self.history_tree.selection()
+        if not selected:
+            return
+            
+        url = self.history_tree.item(selected[0])['values'][0]
+        self.master.clipboard_clear()
+        self.master.clipboard_append(url)
+    
+    def _recheck_selected(self):
+        """Vuelve a verificar la URL seleccionada."""
+        selected = self.history_tree.selection()
+        if not selected:
+            return
+            
+        url = self.history_tree.item(selected[0])['values'][0]
+        self.url_var.set(url)
+        self._check_website()
+    
+    def _delete_selected(self):
+        """Elimina la entrada seleccionada del historial."""
+        selected = self.history_tree.selection()
+        if not selected:
+            return
+            
+        self.history_tree.delete(selected[0])
+    
+    def _show_chart(self, chart_type: str):
+        """Muestra un gráfico específico."""
+        chart_window = tk.Toplevel(self.master)
+        chart_window.title(f"Gráfico - {chart_type.replace('_', ' ').title()}")
+        chart_window.geometry("800x600")
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        if chart_type == 'response_time':
+            self._plot_response_times(ax)
+        elif chart_type == 'status':
+            self._plot_status_distribution(ax)
+        elif chart_type == 'availability':
+            self._plot_availability(ax)
+        
+        canvas = FigureCanvasTkAgg(fig, master=chart_window)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    
+    def _plot_response_times(self, ax):
+        """Dibuja el gráfico de tiempos de respuesta."""
+        times = []
+        labels = []
+        
+        for item in self.history_tree.get_children():
+            values = self.history_tree.item(item)['values']
+            try:
+                response_time = float(values[2].replace('ms', ''))
+                times.append(response_time)
+                labels.append(values[3])  # timestamp
+            except (ValueError, AttributeError):
+                continue
+        
+        if times:
+            ax.plot(labels, times, marker='o')
+            ax.set_xlabel('Fecha/Hora')
+            ax.set_ylabel('Tiempo de Respuesta (ms)')
+            ax.set_title('Tiempos de Respuesta')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+    
+    def _plot_status_distribution(self, ax):
+        """Dibuja el gráfico de distribución de estados."""
+        status_count = {}
+        
+        for item in self.history_tree.get_children():
+            status = self.history_tree.item(item)['values'][1]
+            status_count[status] = status_count.get(status, 0) + 1
+        
+        if status_count:
+            statuses = list(status_count.keys())
+            counts = list(status_count.values())
+            
+            ax.bar(statuses, counts)
+            ax.set_xlabel('Estado')
+            ax.set_ylabel('Cantidad')
+            ax.set_title('Distribución de Estados')
+            plt.tight_layout()
+    
+    def _plot_availability(self, ax):
+        """Dibuja el gráfico de disponibilidad."""
+        available = 0
+        total = 0
+        
+        for item in self.history_tree.get_children():
+            status = self.history_tree.item(item)['values'][1]
+            total += 1
+            if status == "Disponible":
+                available += 1
+        
+        if total:
+            availability = (available / total) * 100
+            unavailability = 100 - availability
+            
+            ax.pie(
+                [availability, unavailability],
+                labels=['Disponible', 'No Disponible'],
+                autopct='%1.1f%%',
+                colors=['#2ecc71', '#e74c3c']
+            )
+            ax.set_title('Disponibilidad General')
+            plt.tight_layout()
+    
+    def _export_csv(self):
+        """Exporta el historial a CSV."""
+        filename = filedialog.asksaveasfilename(
+            defaultextension='.csv',
+            filetypes=[('CSV files', '*.csv'), ('All files', '*.*')],
+            initialfile=f'website_checker_history_{datetime.now():%Y%m%d_%H%M}.csv'
+        )
+        
+        if filename:
+            try:
+                with open(filename, 'w', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['URL', 'Estado', 'Tiempo de Respuesta', 'Fecha/Hora'])
+                    
+                    for item in self.history_tree.get_children():
+                        writer.writerow(self.history_tree.item(item)['values'])
+                        
+                messagebox.showinfo(
+                    "Éxito",
+                    f"Historial exportado exitosamente a {filename}"
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    "Error",
+                    f"Error al exportar el historial: {str(e)}"
+                )
+    
+    def _export_json(self):
+        """Exporta el historial a JSON."""
+        filename = filedialog.asksaveasfilename(
+            defaultextension='.json',
+            filetypes=[('JSON files', '*.json'), ('All files', '*.*')],
+            initialfile=f'website_checker_history_{datetime.now():%Y%m%d_%H%M}.json'
+        )
+        
+        if filename:
+            try:
+                data = []
+                for item in self.history_tree.get_children():
+                    values = self.history_tree.item(item)['values']
+                    data.append({
+                        'url': values[0],
+                        'status': values[1],
+                        'response_time': values[2],
+                        'timestamp': values[3]
+                    })
+                
+                with open(filename, 'w') as f:
+                    json.dump(data, f, indent=2)
+                    
+                messagebox.showinfo(
+                    "Éxito",
+                    f"Historial exportado exitosamente a {filename}"
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    "Error",
+                    f"Error al exportar el historial: {str(e)}"
+                )
+    
+    def _clear_history(self):
+        """Limpia el historial de verificaciones."""
+        if messagebox.askyesno(
+            "Confirmar",
+            "¿Estás seguro de que deseas limpiar todo el historial?"
+        ):
+            for item in self.history_tree.get_children():
+                self.history_tree.delete(item)
+                
+    def _show_settings(self):
+        """Muestra la ventana de configuración."""
+        settings_window = tk.Toplevel(self.master)
+        settings_window.title("Configuración")
+        settings_window.geometry("400x300")
+        settings_window.transient(self.master)
+        settings_window.grab_set()
+        
+        # Aquí puedes agregar más opciones de configuración
+        ttk.Label(
+            settings_window,
+            text="Configuración adicional próximamente..."
+        ).pack(padx=20, pady=20)
+    
+    def _show_statistics(self):
+        """Muestra la ventana de estadísticas."""
+        stats_window = tk.Toplevel(self.master)
+        stats_window.title("Estadísticas")
+        stats_window.geometry("600x400")
+        stats_window.transient(self.master)
+        stats_window.grab_set()
+        
+        # Aquí puedes agregar las estadísticas detalladas
+        ttk.Label(
+            stats_window,
+            text="Estadísticas detalladas próximamente..."
+        ).pack(padx=20, pady=20)
+    
+    def _show_docs(self):
+        """Abre la documentación en el navegador."""
+        webbrowser.open("https://github.com/kigaldev/WebChecker/blob/main/README.md")
+    
+    def _show_about(self):
+        """Muestra el diálogo 'Acerca de'."""
+        about_text = """
+        Website Checker v1.0.0
+        
+        Una aplicación para verificar el estado
+        de sitios web y su disponibilidad.
+        
+        Desarrollado con Python y Tkinter.
+        """
+        messagebox.showinfo("Acerca de Website Checker", about_text)
+    
+    def load_url_history(self):
+        """Carga el historial de URLs desde un archivo."""
+        try:
+            with open('url_history.json', 'r') as f:
+                self.url_history = set(json.load(f))
+            self._update_url_combo()
+        except FileNotFoundError:
+            self.url_history = set()
+        except Exception as e:
+            print(f"Error cargando historial de URLs: {e}")
+            self.url_history = set()
+    
+    def _update_url_combo(self):
+        """Actualiza el combobox con el historial de URLs."""
+        self.url_combo['values'] = list(self.url_history)
+    
+    def _save_url_history(self):
+        """Guarda el historial de URLs en un archivo."""
+        try:
+            with open('url_history.json', 'w') as f:
+                json.dump(list(self.url_history), f)
+        except Exception as e:
+            print(f"Error guardando historial de URLs: {e}")
