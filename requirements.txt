@@ -1,0 +1,29 @@
+# Networking
+aiohttp>=3.9.0
+urllib3>=2.0.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.23.0
+pytest-mock>=3.12.0
+
+# GUI
+tkinter>=8.6.0
+
+# Data handling
+pandas>=2.0.0
+
+# Visualization
+matplotlib>=3.8.0
+
+# Validación
+validators>=0.20.0
+
+# Desarrollo
+black>=23.3.0     # Formateador de código
+flake8>=6.0.0     # Linter
+isort>=5.12.0     # Organizador de imports
+
+
+# pip install -r requirements.txt
